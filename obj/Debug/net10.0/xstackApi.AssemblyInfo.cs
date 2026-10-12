@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("xstackApi")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8fee7ab5d983d8c76bf0f124b58c12da960417aa")]
 [assembly: System.Reflection.AssemblyProductAttribute("xstackApi")]
 [assembly: System.Reflection.AssemblyTitleAttribute("xstackApi")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

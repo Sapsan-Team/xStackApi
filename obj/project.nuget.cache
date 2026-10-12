@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "6f0f4EZrekc=",
+  "dgSpecHash": "7YjG8AipLb8=",
   "success": true,
-  "projectFilePath": "/home/dsf1re/Проекты/xstack/api/xstackApi/xstackApi.csproj",
+  "projectFilePath": "/home/dsf1re/Проекты/xstack/xstackApi/xstackApi.csproj",
   "expectedPackageFiles": [
     "/home/dsf1re/.nuget/packages/microsoft.aspnetcore.authentication.jwtbearer/10.0.12/microsoft.aspnetcore.authentication.jwtbearer.10.0.12.nupkg.sha512",
     "/home/dsf1re/.nuget/packages/microsoft.aspnetcore.openapi/10.0.12/microsoft.aspnetcore.openapi.10.0.12.nupkg.sha512",

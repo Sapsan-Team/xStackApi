@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/dsf1re/Проекты/xstack/api/xstackApi/xstackApi.csproj": {}
+    "/home/dsf1re/Проекты/xstack/xstackApi/xstackApi.csproj": {}
   },
   "projects": {
-    "/home/dsf1re/Проекты/xstack/api/xstackApi/xstackApi.csproj": {
+    "/home/dsf1re/Проекты/xstack/xstackApi/xstackApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/dsf1re/Проекты/xstack/api/xstackApi/xstackApi.csproj",
+        "projectUniqueName": "/home/dsf1re/Проекты/xstack/xstackApi/xstackApi.csproj",
         "projectName": "xstackApi",
-        "projectPath": "/home/dsf1re/Проекты/xstack/api/xstackApi/xstackApi.csproj",
+        "projectPath": "/home/dsf1re/Проекты/xstack/xstackApi/xstackApi.csproj",
         "packagesPath": "/home/dsf1re/.nuget/packages/",
-        "outputPath": "/home/dsf1re/Проекты/xstack/api/xstackApi/obj/",
+        "outputPath": "/home/dsf1re/Проекты/xstack/xstackApi/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/dsf1re/.nuget/NuGet/NuGet.Config"
