@@ -70,6 +70,13 @@ public sealed partial class ChatService
 
         await transaction.CommitAsync(cancellationToken);
 
+        // Push-first: every member's live connections join the new room now,
+        // so the first message is delivered without a reconnect.
+        foreach (var memberId in await LoadChatMemberIdsAsync(chatId, cancellationToken))
+        {
+            await chatRoomService.AddUserToChatAsync(memberId, chatId, CancellationToken.None);
+        }
+
         return await GetChatDetailsAsync(chatId, currentUserId, cancellationToken);
     }
 

@@ -235,6 +235,42 @@ public sealed partial class ChatService(
             otherMemberDisplayName));
     }
 
+    public async Task<List<Guid>> GetUserChatIdsAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT chat_id FROM chat_members WHERE user_id = @userId;");
+        command.Parameters.AddWithValue("userId", userId);
+
+        var chatIds = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            chatIds.Add(reader.GetGuid(0));
+        }
+
+        return chatIds;
+    }
+
+    private async Task<List<Guid>> LoadChatMemberIdsAsync(
+        Guid chatId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT user_id FROM chat_members WHERE chat_id = @chatId;");
+        command.Parameters.AddWithValue("chatId", chatId);
+
+        var userIds = new List<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            userIds.Add(reader.GetGuid(0));
+        }
+
+        return userIds;
+    }
+
     private async Task<List<ChatMemberResponse>> LoadChatMembersInternalAsync(
         Guid chatId,
         CancellationToken cancellationToken)

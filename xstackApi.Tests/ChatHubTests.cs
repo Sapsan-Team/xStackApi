@@ -109,6 +109,10 @@ public sealed class ChatHubTests
             return Task.FromResult(isMember);
         }
 
+        public Task<List<Guid>> GetUserChatIdsAsync(
+            Guid userId,
+            CancellationToken cancellationToken) => Task.FromResult(new List<Guid>());
+
         public Task<ServiceResult<List<ChatSummaryResponse>>> GetUserChatsAsync(
             Guid currentUserId,
             CancellationToken cancellationToken) => throw new NotSupportedException();

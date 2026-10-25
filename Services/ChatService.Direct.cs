@@ -71,6 +71,13 @@ public sealed partial class ChatService
 
         await transaction.CommitAsync(cancellationToken);
 
+        // Subscribe both members right away: a chat created by the other side
+        // would otherwise start delivering only after a reconnect.
+        foreach (var memberId in await LoadChatMemberIdsAsync(chatId, cancellationToken))
+        {
+            await chatRoomService.AddUserToChatAsync(memberId, chatId, CancellationToken.None);
+        }
+
         return await GetChatDetailsAsync(chatId, currentUserId, cancellationToken);
     }
 }

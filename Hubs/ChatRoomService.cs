@@ -22,6 +22,11 @@ public interface IChatRoomService
         Guid userId,
         Guid chatId,
         CancellationToken cancellationToken = default);
+
+    Task AddUserToChatAsync(
+        Guid userId,
+        Guid chatId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class ChatRoomService(
@@ -47,6 +52,39 @@ public sealed class ChatRoomService(
         if (connections.IsEmpty)
         {
             _connections.TryRemove(userId, out _);
+        }
+    }
+
+    public async Task AddUserToChatAsync(
+        Guid userId,
+        Guid chatId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_connections.TryGetValue(userId, out var connections))
+        {
+            return;
+        }
+
+        var groupName = ChatHub.GetChatGroupName(chatId);
+        foreach (var connectionId in connections.Keys)
+        {
+            try
+            {
+                await hubContext.Groups.AddToGroupAsync(
+                    connectionId,
+                    groupName,
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                // Live subscription is best-effort: the membership itself was
+                // already persisted, and the client re-joins on reconnect.
+                logger.LogWarning(
+                    exception,
+                    "Failed to subscribe connection {ConnectionId} to chat {ChatId}.",
+                    connectionId,
+                    chatId);
+            }
         }
     }
 

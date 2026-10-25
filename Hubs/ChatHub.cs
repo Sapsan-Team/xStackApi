@@ -33,6 +33,20 @@ public class ChatHub : Hub<IChatClient>
         {
             _chatRoomService.TrackConnection(userId.Value, Context.ConnectionId);
 
+            // Push-first: subscribe the connection to every chat the user is a
+            // member of. Messages for chats that are not open still arrive, so
+            // the client does not have to poll or re-join on navigation.
+            var chatIds = await _chatService.GetUserChatIdsAsync(
+                userId.Value,
+                Context.ConnectionAborted);
+            foreach (var chatId in chatIds)
+            {
+                await Groups.AddToGroupAsync(
+                    Context.ConnectionId,
+                    GetChatGroupName(chatId),
+                    Context.ConnectionAborted);
+            }
+
             // Broadcast that user is online to others
             await Clients.Others.UserPresenceChanged(userId.Value, true, null);
         }

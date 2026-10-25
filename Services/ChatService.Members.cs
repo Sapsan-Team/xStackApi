@@ -108,6 +108,13 @@ public sealed partial class ChatService
         var joinedAtObj = await insertCmd.ExecuteScalarAsync(cancellationToken);
         var joinedAt = ToDateTimeOffset(joinedAtObj);
 
+        // The new member's live connections start receiving the chat right
+        // away instead of waiting for the next reconnect.
+        await chatRoomService.AddUserToChatAsync(
+            request.UserId,
+            chatId,
+            CancellationToken.None);
+
         await using var getUserInfoCmd = dataSource.CreateCommand(
             "SELECT username, display_name, phone_number FROM users WHERE id = @id;");
         getUserInfoCmd.Parameters.AddWithValue("id", request.UserId);

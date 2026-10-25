@@ -18,6 +18,14 @@ public interface IChatService
         Guid userId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Ids of every chat the user belongs to. Used to subscribe a live
+    /// connection to all of them so messages arrive without opening a chat.
+    /// </summary>
+    Task<List<Guid>> GetUserChatIdsAsync(
+        Guid userId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<ChatDetailsResponse>> CreateDirectChatAsync(
         Guid currentUserId,
         CreateDirectChatRequest request,
