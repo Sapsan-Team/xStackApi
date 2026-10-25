@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="xstackApi.csproj" />
+  <Project Path="xstackApi.Tests/xstackApi.Tests.csproj" />
+</Solution>

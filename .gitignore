@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# IDE / user-specific files
+.vs/
+.idea/
+*.user
+*.suo
+
+# Local configuration overrides (never commit secrets)
+appsettings.*.local.json

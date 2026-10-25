@@ -5,6 +5,19 @@ namespace xstackApi.Services;
 
 public sealed partial class ChatService
 {
+    public async Task<bool> IsMemberAsync(
+        Guid chatId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT 1 FROM chat_members WHERE chat_id = @chatId AND user_id = @userId;");
+        command.Parameters.AddWithValue("chatId", chatId);
+        command.Parameters.AddWithValue("userId", userId);
+
+        return await command.ExecuteScalarAsync(cancellationToken) is not null;
+    }
+
     public async Task<ServiceResult<List<ChatMemberResponse>>> GetChatMembersAsync(
         Guid chatId,
         Guid currentUserId,
@@ -180,6 +193,10 @@ public sealed partial class ChatService
         deleteCmd.Parameters.AddWithValue("targetUserId", targetUserId);
         await deleteCmd.ExecuteNonQueryAsync(cancellationToken);
 
+        // Evict live connections immediately: otherwise a removed member would
+        // keep receiving messages until they reconnect.
+        await chatRoomService.RemoveUserFromChatAsync(targetUserId, chatId, CancellationToken.None);
+
         return ServiceResult.Success();
     }
 
@@ -352,6 +369,11 @@ public sealed partial class ChatService
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        // The chat may still exist for the other members, so make sure the
+        // leaving user's live connection is no longer subscribed to it.
+        await chatRoomService.RemoveUserFromChatAsync(currentUserId, chatId, CancellationToken.None);
+
         return ServiceResult.Success();
     }
 }

@@ -13,6 +13,11 @@ public interface IChatService
         Guid currentUserId,
         CancellationToken cancellationToken);
 
+    Task<bool> IsMemberAsync(
+        Guid chatId,
+        Guid userId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<ChatDetailsResponse>> CreateDirectChatAsync(
         Guid currentUserId,
         CreateDirectChatRequest request,

@@ -1,9 +1,12 @@
 using Npgsql;
+using xstackApi.Hubs;
 using xstackApi.Models;
 
 namespace xstackApi.Services;
 
-public sealed partial class ChatService(NpgsqlDataSource dataSource) : IChatService
+public sealed partial class ChatService(
+    NpgsqlDataSource dataSource,
+    IChatRoomService chatRoomService) : IChatService
 {
     public async Task<ServiceResult<List<ChatSummaryResponse>>> GetUserChatsAsync(
         Guid currentUserId,

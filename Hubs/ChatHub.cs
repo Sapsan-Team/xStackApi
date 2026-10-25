@@ -2,12 +2,28 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using xstackApi.Endpoints;
+using xstackApi.Models;
+using xstackApi.Services;
 
 namespace xstackApi.Hubs;
 
 [Authorize]
 public class ChatHub : Hub<IChatClient>
 {
+    private readonly IUserService _userService;
+    private readonly IChatService _chatService;
+    private readonly IChatRoomService _chatRoomService;
+
+    public ChatHub(
+        IUserService userService,
+        IChatService chatService,
+        IChatRoomService chatRoomService)
+    {
+        _userService = userService;
+        _chatService = chatService;
+        _chatRoomService = chatRoomService;
+    }
+
     public static string GetChatGroupName(Guid chatId) => $"chat:{chatId}";
 
     public override async Task OnConnectedAsync()
@@ -15,6 +31,8 @@ public class ChatHub : Hub<IChatClient>
         var userId = Context.User?.GetUserId();
         if (userId.HasValue)
         {
+            _chatRoomService.TrackConnection(userId.Value, Context.ConnectionId);
+
             // Broadcast that user is online to others
             await Clients.Others.UserPresenceChanged(userId.Value, true, null);
         }
@@ -27,6 +45,8 @@ public class ChatHub : Hub<IChatClient>
         var userId = Context.User?.GetUserId();
         if (userId.HasValue)
         {
+            _chatRoomService.UntrackConnection(userId.Value, Context.ConnectionId);
+
             // Broadcast that user went offline
             await Clients.Others.UserPresenceChanged(userId.Value, false, DateTimeOffset.UtcNow);
         }
@@ -39,6 +59,17 @@ public class ChatHub : Hub<IChatClient>
     /// </summary>
     public async Task JoinChat(Guid chatId)
     {
+        var userId = Context.User?.GetUserId();
+        if (!userId.HasValue)
+        {
+            throw new HubException("Unauthorized.");
+        }
+
+        if (!await _chatService.IsMemberAsync(chatId, userId.Value, Context.ConnectionAborted))
+        {
+            throw new HubException("You are not a member of this chat.");
+        }
+
         var groupName = GetChatGroupName(chatId);
         await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
     }
@@ -63,11 +94,24 @@ public class ChatHub : Hub<IChatClient>
             return;
         }
 
-        var displayName = Context.User?.FindFirstValue("display_name")
-            ?? Context.User?.FindFirstValue(ClaimTypes.Name)
-            ?? "User";
+        if (!await _chatService.IsMemberAsync(chatId, userId.Value, Context.ConnectionAborted))
+        {
+            return;
+        }
+
+        // The JWT carries no name claim, so resolve the nickname from the
+        // database instead of falling back to a generic "User".
+        var profileResult = await _userService.GetProfileAsync(
+            userId.Value,
+            Context.ConnectionAborted);
+        var displayName = !string.IsNullOrEmpty(profileResult.Data?.DisplayName)
+            ? profileResult.Data.DisplayName
+            : !string.IsNullOrEmpty(profileResult.Data?.Username)
+                ? profileResult.Data.Username
+                : "User";
 
         var groupName = GetChatGroupName(chatId);
-        await Clients.OthersInGroup(groupName).UserTyping(chatId, userId.Value, displayName);
+        await Clients.OthersInGroup(groupName)
+            .UserTyping(chatId, userId.Value, displayName);
     }
 }
