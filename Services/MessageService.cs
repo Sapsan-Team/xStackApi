@@ -16,16 +16,52 @@ public sealed partial class MessageService(
         Guid? beforeMessageId,
         CancellationToken cancellationToken)
     {
-        await using (var checkCmd = dataSource.CreateCommand(
-            "SELECT 1 FROM chat_members WHERE chat_id = @chatId AND user_id = @currentUserId;"))
+        DateTimeOffset? myReadAt;
+        await using (var memberCmd = dataSource.CreateCommand(
+            """
+            SELECT m0.created_at
+            FROM chat_members cm
+            LEFT JOIN messages m0 ON m0.id = cm.last_read_message_id
+            WHERE cm.chat_id = @chatId AND cm.user_id = @currentUserId;
+            """))
         {
-            checkCmd.Parameters.AddWithValue("chatId", chatId);
-            checkCmd.Parameters.AddWithValue("currentUserId", currentUserId);
-            var isMember = await checkCmd.ExecuteScalarAsync(cancellationToken);
-            if (isMember is null)
+            memberCmd.Parameters.AddWithValue("chatId", chatId);
+            memberCmd.Parameters.AddWithValue("currentUserId", currentUserId);
+
+            await using var memberReader = await memberCmd.ExecuteReaderAsync(cancellationToken);
+            if (!await memberReader.ReadAsync(cancellationToken))
             {
                 return ServiceResult<List<MessageResponse>>.NotFound("Chat not found or access denied.");
             }
+
+            myReadAt = memberReader.IsDBNull(0)
+                ? null
+                : memberReader.GetFieldValue<DateTimeOffset>(0);
+        }
+
+        // Earliest cursor among the other members. A NULL cursor means that
+        // member has read nothing yet, so the whole chat counts as unread by
+        // them and the current user's own messages stay unread.
+        DateTimeOffset? othersMinReadAt;
+        await using (var othersCmd = dataSource.CreateCommand(
+            """
+            SELECT CASE
+                       WHEN COUNT(*) FILTER (WHERE m0.created_at IS NULL) > 0 THEN NULL
+                       ELSE MIN(m0.created_at)
+                   END
+            FROM chat_members cm
+            LEFT JOIN messages m0 ON m0.id = cm.last_read_message_id
+            WHERE cm.chat_id = @chatId AND cm.user_id <> @currentUserId;
+            """))
+        {
+            othersCmd.Parameters.AddWithValue("chatId", chatId);
+            othersCmd.Parameters.AddWithValue("currentUserId", currentUserId);
+
+            await using var othersReader = await othersCmd.ExecuteReaderAsync(cancellationToken);
+            await othersReader.ReadAsync(cancellationToken);
+            othersMinReadAt = othersReader.IsDBNull(0)
+                ? null
+                : othersReader.GetFieldValue<DateTimeOffset>(0);
         }
 
         DateTimeOffset? cursorTime = null;
@@ -58,7 +94,6 @@ public sealed partial class MessageService(
                 u.username,
                 u.phone_number,
                 m.content,
-                m.is_read,
                 m.is_edited,
                 m.is_deleted,
                 m.created_at,
@@ -86,15 +121,19 @@ public sealed partial class MessageService(
             var username = reader.IsDBNull(4) ? null : reader.GetString(4);
             var phoneNumber = reader.IsDBNull(5) ? null : reader.GetString(5);
             var content = reader.IsDBNull(6) ? null : reader.GetString(6);
-            var isRead = reader.GetBoolean(7);
-            var isEdited = reader.GetBoolean(8);
-            var isDeleted = reader.GetBoolean(9);
-            var createdAt = ToDateTimeOffset(reader.GetValue(10));
-            var updatedAt = ToDateTimeOffset(reader.GetValue(11));
+            var isEdited = reader.GetBoolean(7);
+            var isDeleted = reader.GetBoolean(8);
+            var createdAt = ToDateTimeOffset(reader.GetValue(9));
+            var updatedAt = ToDateTimeOffset(reader.GetValue(10));
 
             var senderName = displayName ?? username ?? phoneNumber ?? "User";
             var displayContent = isDeleted ? null : content;
             var isMine = senderId == currentUserId;
+            var isRead = ReadState.IsRead(
+                isMine,
+                createdAt,
+                myReadAt,
+                othersMinReadAt);
 
             messages.Add(new MessageResponse(
                 id,

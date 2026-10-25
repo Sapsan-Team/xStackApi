@@ -257,16 +257,29 @@ public sealed partial class MessageService
         MarkMessagesReadRequest request,
         CancellationToken cancellationToken)
     {
-        await using (var checkCmd = dataSource.CreateCommand(
-            "SELECT 1 FROM chat_members WHERE chat_id = @chatId AND user_id = @currentUserId;"))
+        Guid? currentReadMessageId;
+        DateTimeOffset? currentReadAt;
+        await using (var memberCmd = dataSource.CreateCommand(
+            """
+            SELECT cm.last_read_message_id, m0.created_at
+            FROM chat_members cm
+            LEFT JOIN messages m0 ON m0.id = cm.last_read_message_id
+            WHERE cm.chat_id = @chatId AND cm.user_id = @currentUserId;
+            """))
         {
-            checkCmd.Parameters.AddWithValue("chatId", chatId);
-            checkCmd.Parameters.AddWithValue("currentUserId", currentUserId);
-            var isMember = await checkCmd.ExecuteScalarAsync(cancellationToken);
-            if (isMember is null)
+            memberCmd.Parameters.AddWithValue("chatId", chatId);
+            memberCmd.Parameters.AddWithValue("currentUserId", currentUserId);
+
+            await using var memberReader = await memberCmd.ExecuteReaderAsync(cancellationToken);
+            if (!await memberReader.ReadAsync(cancellationToken))
             {
                 return ServiceResult<MarkReadResponse>.NotFound("Chat not found or access denied.");
             }
+
+            currentReadMessageId = memberReader.IsDBNull(0) ? null : memberReader.GetGuid(0);
+            currentReadAt = memberReader.IsDBNull(1)
+                ? null
+                : memberReader.GetFieldValue<DateTimeOffset>(1);
         }
 
         Guid targetMessageId;
@@ -304,58 +317,53 @@ public sealed partial class MessageService
             targetCreatedAt = reader.GetFieldValue<DateTimeOffset>(1);
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-
-        await using (var updateMessagesCmd = new NpgsqlCommand(
-            """
-            UPDATE messages
-            SET is_read = TRUE
-            WHERE chat_id = @chatId 
-              AND sender_id != @currentUserId 
-              AND created_at <= @targetCreatedAt
-              AND is_read = FALSE;
-            """, connection, transaction))
-        {
-            updateMessagesCmd.Parameters.AddWithValue("chatId", chatId);
-            updateMessagesCmd.Parameters.AddWithValue("currentUserId", currentUserId);
-            updateMessagesCmd.Parameters.AddWithValue("targetCreatedAt", targetCreatedAt);
-            await updateMessagesCmd.ExecuteNonQueryAsync(cancellationToken);
-        }
-
-        await using (var updateMemberCmd = new NpgsqlCommand(
-            """
-            UPDATE chat_members
-            SET last_read_message_id = @targetMessageId
-            WHERE chat_id = @chatId AND user_id = @currentUserId;
-            """, connection, transaction))
-        {
-            updateMemberCmd.Parameters.AddWithValue("targetMessageId", targetMessageId);
-            updateMemberCmd.Parameters.AddWithValue("chatId", chatId);
-            updateMemberCmd.Parameters.AddWithValue("currentUserId", currentUserId);
-            await updateMemberCmd.ExecuteNonQueryAsync(cancellationToken);
-        }
+        // The cursor only moves forward: a late or reordered client request must
+        // not turn already-read messages back into unread ones.
+        var advanced = currentReadAt is null || targetCreatedAt > currentReadAt.Value;
+        var effectiveReadAt = advanced ? targetCreatedAt : currentReadAt!.Value;
+        var effectiveReadMessageId = advanced ? targetMessageId : currentReadMessageId;
 
         int unreadCount;
-        await using (var countCmd = new NpgsqlCommand(
-            """
-            SELECT COUNT(*)::int
-            FROM messages
-            WHERE chat_id = @chatId 
-              AND sender_id != @currentUserId 
-              AND is_read = FALSE;
-            """, connection, transaction))
+        await using (var connection = await dataSource.OpenConnectionAsync(cancellationToken))
+        await using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
         {
+            if (advanced)
+            {
+                await using var updateMemberCmd = new NpgsqlCommand(
+                    """
+                    UPDATE chat_members
+                    SET last_read_message_id = @targetMessageId
+                    WHERE chat_id = @chatId AND user_id = @currentUserId;
+                    """, connection, transaction);
+                updateMemberCmd.Parameters.AddWithValue("targetMessageId", targetMessageId);
+                updateMemberCmd.Parameters.AddWithValue("chatId", chatId);
+                updateMemberCmd.Parameters.AddWithValue("currentUserId", currentUserId);
+                await updateMemberCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using var countCmd = new NpgsqlCommand(
+                """
+                SELECT COUNT(*)::int
+                FROM messages
+                WHERE chat_id = @chatId 
+                  AND sender_id != @currentUserId 
+                  AND created_at > @effectiveReadAt;
+                """, connection, transaction);
             countCmd.Parameters.AddWithValue("chatId", chatId);
             countCmd.Parameters.AddWithValue("currentUserId", currentUserId);
+            countCmd.Parameters.AddWithValue("effectiveReadAt", effectiveReadAt);
             unreadCount = (int)(await countCmd.ExecuteScalarAsync(cancellationToken))!;
+
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        await transaction.CommitAsync(cancellationToken);
+        if (advanced)
+        {
+            await hubContext.Clients.Group(ChatHub.GetChatGroupName(chatId))
+                .MessagesRead(chatId, currentUserId, targetMessageId);
+        }
 
-        await hubContext.Clients.Group(ChatHub.GetChatGroupName(chatId))
-            .MessagesRead(chatId, currentUserId, targetMessageId);
-
-        return ServiceResult<MarkReadResponse>.Success(new MarkReadResponse(unreadCount, targetMessageId));
+        return ServiceResult<MarkReadResponse>.Success(
+            new MarkReadResponse(unreadCount, effectiveReadMessageId));
     }
 }

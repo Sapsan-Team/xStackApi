@@ -90,8 +90,13 @@ public sealed partial class ChatService
 
         await using var insertCmd = dataSource.CreateCommand(
             """
-            INSERT INTO chat_members (chat_id, user_id, role)
-            VALUES (@chatId, @userId, @role::member_role)
+            INSERT INTO chat_members (chat_id, user_id, role, last_read_message_id)
+            VALUES (
+                @chatId,
+                @userId,
+                @role::member_role,
+                (SELECT id FROM messages WHERE chat_id = @chatId ORDER BY created_at DESC LIMIT 1)
+            )
             ON CONFLICT (chat_id, user_id) DO UPDATE
             SET role = @role::member_role
             RETURNING joined_at;

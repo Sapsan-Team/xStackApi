@@ -33,7 +33,15 @@ public sealed partial class ChatService(
                 lm_u.phone_number AS last_msg_sender_phone,
                 lm.content AS last_msg_content,
                 lm.created_at AS last_msg_created_at,
-                lm.is_read AS last_msg_is_read,
+                CASE
+                    WHEN lm.id IS NULL THEN FALSE
+                    WHEN lm.sender_id = @currentUserId THEN
+                        (others_read.min_read_at IS NOT NULL
+                         AND lm.created_at <= others_read.min_read_at)
+                    ELSE
+                        (my_read.read_at IS NOT NULL
+                         AND lm.created_at <= my_read.read_at)
+                END AS last_msg_is_read,
                 lm.is_deleted AS last_msg_is_deleted,
                 COALESCE(unread.count, 0) AS unread_count
             FROM chats c
@@ -46,7 +54,7 @@ public sealed partial class ChatService(
                 LIMIT 1
             ) other_u ON true
             LEFT JOIN LATERAL (
-                SELECT m.id, m.sender_id, m.content, m.created_at, m.is_read, m.is_deleted
+                SELECT m.id, m.sender_id, m.content, m.created_at, m.is_deleted
                 FROM messages m
                 WHERE m.chat_id = c.id
                 ORDER BY m.created_at DESC
@@ -54,11 +62,25 @@ public sealed partial class ChatService(
             ) lm ON true
             LEFT JOIN users lm_u ON lm_u.id = lm.sender_id
             LEFT JOIN LATERAL (
+                SELECT m0.created_at AS read_at
+                FROM messages m0
+                WHERE m0.id = my_cm.last_read_message_id
+            ) my_read ON true
+            LEFT JOIN LATERAL (
+                SELECT CASE
+                           WHEN COUNT(*) FILTER (WHERE m3.created_at IS NULL) > 0 THEN NULL
+                           ELSE MIN(m3.created_at)
+                       END AS min_read_at
+                FROM chat_members cm3
+                LEFT JOIN messages m3 ON m3.id = cm3.last_read_message_id
+                WHERE cm3.chat_id = c.id AND cm3.user_id != @currentUserId
+            ) others_read ON true
+            LEFT JOIN LATERAL (
                 SELECT COUNT(*)::int AS count
                 FROM messages m
                 WHERE m.chat_id = c.id 
                   AND m.sender_id != @currentUserId 
-                  AND m.is_read = FALSE
+                  AND (my_read.read_at IS NULL OR m.created_at > my_read.read_at)
             ) unread ON true
             ORDER BY COALESCE(lm.created_at, c.updated_at) DESC;
             """);
