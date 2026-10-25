@@ -9,7 +9,7 @@ public sealed class JwtTokenService(JwtOptions options) : IJwtTokenService
 {
     private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(30);
 
-    public AuthTokenResponse CreateToken(AuthUser user)
+    public AccessToken CreateToken(AuthUser user)
     {
         var expiresAt = DateTimeOffset.UtcNow.Add(TokenLifetime);
         var credentials = new SigningCredentials(
@@ -27,9 +27,8 @@ public sealed class JwtTokenService(JwtOptions options) : IJwtTokenService
             expires: expiresAt.UtcDateTime,
             signingCredentials: credentials);
 
-        return new AuthTokenResponse(
+        return new AccessToken(
             new JwtSecurityTokenHandler().WriteToken(token),
-            "Bearer",
             expiresAt);
     }
 }

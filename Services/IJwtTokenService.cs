@@ -4,5 +4,5 @@ namespace xstackApi.Services;
 
 public interface IJwtTokenService
 {
-    AuthTokenResponse CreateToken(AuthUser user);
+    AccessToken CreateToken(AuthUser user);
 }

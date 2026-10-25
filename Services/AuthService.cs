@@ -8,7 +8,8 @@ namespace xstackApi.Services;
 public sealed class AuthService(
     NpgsqlDataSource dataSource,
     IPasswordHasher<AuthUser> passwordHasher,
-    IJwtTokenService tokenService) : IAuthService
+    IJwtTokenService tokenService,
+    IRefreshTokenService refreshTokenService) : IAuthService
 {
     private readonly string _dummyPasswordHash = passwordHasher.HashPassword(
         new AuthUser(Guid.Empty, string.Empty),
@@ -16,6 +17,7 @@ public sealed class AuthService(
 
     public async Task<AuthTokenResponse?> RegisterAsync(
         RegisterRequest request,
+        string? deviceInfo,
         CancellationToken cancellationToken)
     {
         var user = new AuthUser(Guid.NewGuid(), request.PhoneNumber.Trim());
@@ -41,11 +43,12 @@ public sealed class AuthService(
             return null;
         }
 
-        return tokenService.CreateToken(user);
+        return await IssueSessionAsync(user, deviceInfo, cancellationToken);
     }
 
     public async Task<AuthTokenResponse?> LoginAsync(
         LoginRequest request,
+        string? deviceInfo,
         CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(
@@ -84,7 +87,60 @@ public sealed class AuthService(
             await updateCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        return tokenService.CreateToken(user);
+        return await IssueSessionAsync(user, deviceInfo, cancellationToken);
+    }
+
+    public async Task<AuthTokenResponse?> RefreshAsync(
+        RefreshTokenRequest request,
+        string? deviceInfo,
+        CancellationToken cancellationToken)
+    {
+        var record = await refreshTokenService.FindAsync(request.RefreshToken, cancellationToken);
+        if (record is null)
+        {
+            return null;
+        }
+
+        // Expired tokens are simply rejected; only a *revoked* one that is still
+        // within its lifetime signals a replay of a rotated token.
+        if (record.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            return null;
+        }
+
+        if (record.IsRevoked)
+        {
+            // Someone presented a token that was already rotated away. Treat the
+            // whole session family as compromised and force a re-login.
+            await refreshTokenService.RevokeAllAsync(record.UserId, cancellationToken);
+            return null;
+        }
+
+        if (!await refreshTokenService.RevokeAsync(record.Id, cancellationToken))
+        {
+            // A concurrent refresh won the race; the presented token is spent.
+            return null;
+        }
+
+        var user = await LoadAuthUserAsync(record.UserId, cancellationToken);
+        if (user is null)
+        {
+            return null;
+        }
+
+        return await IssueSessionAsync(user, deviceInfo, cancellationToken);
+    }
+
+    public async Task LogoutAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        // Logout is idempotent: an unknown or already revoked token is fine.
+        var record = await refreshTokenService.FindAsync(request.RefreshToken, cancellationToken);
+        if (record is not null && !record.IsRevoked)
+        {
+            await refreshTokenService.RevokeAsync(record.Id, cancellationToken);
+        }
     }
 
     public async Task<AuthUserResponse?> GetUserAsync(
@@ -111,6 +167,41 @@ public sealed class AuthService(
             reader.IsDBNull(2) ? null : reader.GetString(2),
             reader.IsDBNull(3) ? null : reader.GetString(3),
             reader.IsDBNull(4) ? null : reader.GetString(4));
+    }
+
+    private async Task<AuthTokenResponse> IssueSessionAsync(
+        AuthUser user,
+        string? deviceInfo,
+        CancellationToken cancellationToken)
+    {
+        var access = tokenService.CreateToken(user);
+        var refreshToken = await refreshTokenService.IssueAsync(
+            user.Id,
+            deviceInfo,
+            cancellationToken);
+
+        return new AuthTokenResponse(
+            access.Value,
+            "Bearer",
+            access.ExpiresAt,
+            refreshToken);
+    }
+
+    private async Task<AuthUser?> LoadAuthUserAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT id, phone_number FROM users WHERE id = @id;");
+        command.Parameters.AddWithValue("id", userId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new AuthUser(reader.GetGuid(0), reader.GetString(1));
     }
 
     private static string? NormalizeOptional(string? value)

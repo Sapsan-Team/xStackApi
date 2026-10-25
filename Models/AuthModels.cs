@@ -39,11 +39,28 @@ public sealed record LoginRequest
     public string Password { get; init; } = string.Empty;
 }
 
-/// <summary>A short-lived bearer access token returned after successful authentication.</summary>
+/// <summary>
+/// A short-lived bearer access token plus the refresh token used to obtain the
+/// next pair once it expires.
+/// </summary>
 public sealed record AuthTokenResponse(
     string AccessToken,
     string TokenType,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    string RefreshToken);
+
+/// <summary>A signed access token and the moment it stops being valid.</summary>
+public sealed record AccessToken(string Value, DateTimeOffset ExpiresAt);
+
+/// <summary>A refresh token issued earlier by register, login or refresh.</summary>
+public sealed record RefreshTokenRequest
+{
+    /// <summary>The opaque refresh token. Only its hash is stored server side.</summary>
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.MaxLength(256)]
+    [System.ComponentModel.DataAnnotations.RegularExpression(@".*\S.*")]
+    public string RefreshToken { get; init; } = string.Empty;
+}
 
 /// <summary>The authenticated user's profile loaded from the database.</summary>
 public sealed record AuthUserResponse(
